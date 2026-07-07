@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Teeinblue Marketing Analytics</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --tib-blue:#1350de; --tib-blue-dark:#0e3aa8; --tib-blue-soft:#eef2ff;
+    --green:#12b76a; --red:#f04438; --amber:#f79009;
+    --ink:#111827; --muted:#6b7280; --line:#e5e7eb; --bg:#f4f6fb; --card:#fff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
+
+  /* Top bar */
+  header{background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+  .brand-row{display:flex;align-items:center;gap:12px;padding:12px 28px 0;max-width:1400px;margin:0 auto}
+  .brand{font-size:18px;font-weight:800;color:var(--tib-blue);letter-spacing:-.3px}
+  .brand span{color:var(--ink)}
+  .tag{margin-left:auto;font-size:12px;color:var(--muted)}
+  nav{display:flex;gap:2px;padding:6px 20px 0;max-width:1400px;margin:0 auto;overflow-x:auto}
+  nav button{appearance:none;border:0;background:none;cursor:pointer;font-size:14px;font-weight:600;color:var(--muted);padding:10px 16px;border-bottom:3px solid transparent;white-space:nowrap}
+  nav button:hover{color:var(--ink)}
+  nav button.active{color:var(--tib-blue);border-bottom-color:var(--tib-blue)}
+
+  main{max-width:1400px;margin:0 auto;padding:20px 28px 40px}
+
+  /* Filter bar */
+  .filters{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-bottom:18px}
+  .field{display:flex;flex-direction:column;gap:5px}
+  .field label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)}
+  .field select,.field input{border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px 12px;font-size:14px;color:var(--ink);min-width:180px}
+  .field input:focus,.field select:focus{outline:2px solid var(--tib-blue-soft);border-color:var(--tib-blue)}
+  .src-badge{margin-left:auto;font-size:11px;color:var(--muted);display:flex;gap:6px;align-items:center}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--amber)}
+
+  /* KPI cards */
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .kpi .src{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase}
+  .kpi .src.ga{color:var(--tib-blue)} .kpi .src.gsc{color:#7a5af8}
+  .kpi .label{font-size:13px;color:var(--muted);margin-top:2px}
+  .kpi .val{font-size:26px;font-weight:800;margin-top:6px;letter-spacing:-.5px}
+  .kpi .delta{font-size:12px;font-weight:700;margin-top:4px;display:inline-flex;gap:3px;align-items:center}
+  .delta.up{color:var(--green)} .delta.down{color:var(--red)} .delta.flat{color:var(--muted)}
+
+  /* Chart grid */
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .panel.wide{grid-column:1 / -1}
+  .panel h3{font-size:14px;font-weight:700;margin-bottom:2px}
+  .panel .sub{font-size:12px;color:var(--muted);margin-bottom:12px}
+  .chart-box{position:relative;height:260px}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line)}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:700}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  tbody tr:hover{background:#fafbff}
+  .path{color:var(--tib-blue-dark);font-weight:600}
+
+  .placeholder{background:var(--card);border:1px dashed var(--line);border-radius:14px;padding:60px 20px;text-align:center;color:var(--muted)}
+  .placeholder h2{color:var(--ink);font-size:18px;margin-bottom:8px}
+  .placeholder code{background:var(--tib-blue-soft);color:var(--tib-blue-dark);padding:2px 6px;border-radius:6px}
+
+  @media(max-width:900px){.kpis{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand-row">
+    <div class="brand">Teeinblue <span>Marketing Analytics</span></div>
+    <div class="tag">Self-built dashboard · GA4 + Google Search Console</div>
+  </div>
+  <nav id="nav"></nav>
+</header>
+
+<main id="view"></main>
+
+<script>
+/* =====================================================================
+   CHANNELS
+   mode: 'native' -> dashboard tự build (GA4 + GSC)
+         'soon'   -> placeholder (chưa gắn nguồn)
+   scope: 'all' (toàn site) | 'blog' (chỉ URL /blogs) -> lọc dữ liệu native
+   ===================================================================== */
+const channels = [
+  { key:"appstore",    label:"App Store",   mode:"soon" },
+  { key:"advertising", label:"Advertising", mode:"soon" },
+  { key:"website",     label:"Website",     mode:"native", scope:"all"  },
+  { key:"blogs",       label:"Blogs",       mode:"native", scope:"blog" },
+  { key:"social",      label:"Social",      mode:"soon" },
+  { key:"email",       label:"Email",       mode:"soon" },
+];
+
+/* =====================================================================
+   MOCK DATA — hình dạng GIỐNG dữ liệu GA4 + GSC.
+   Sau này thay bằng JSON do script Python kéo từ GA4 Data API + Search
+   Console API. Cấu trúc giữ nguyên: DAYS[], PAGES[], QUERIES[].
+   ===================================================================== */
+function rng(seed){return function(){seed=(seed*1103515245+12345)&0x7fffffff;return seed/0x7fffffff;};}
+const rand = rng(42);
+
+// Trục ngày: 01/01/2026 -> 04/07/2026
+const DAYS=[]; {
+  const s=new Date(2026,0,1), e=new Date(2026,6,4);
+  for(let d=new Date(s); d<=e; d.setDate(d.getDate()+1)) DAYS.push(new Date(d));
+}
+const N = DAYS.length;
+const dow = i => DAYS[i].getDay();               // 0=CN
+const weekend = i => dow(i)===0||dow(i)===6;
+
+// Danh sách page (mỗi page có chuỗi số theo ngày cho cả GA4 & GSC)
+const PAGE_DEFS = [
+  {path:"/",                                          kind:"home",   base:120},
+  {path:"/products/name-ornament",                    kind:"product",base:70},
+  {path:"/products/custom-photo-necklace",            kind:"product",base:55},
+  {path:"/collections/personalized-gifts",            kind:"collection",base:40},
+  {path:"/blogs/en/best-product-customizer-shopify",  kind:"blog",   base:52},
+  {path:"/blogs/en/product-personalization-guide",    kind:"blog",   base:38},
+  {path:"/blogs/en/how-to-add-engraving-options",     kind:"blog",   base:29},
+  {path:"/blogs/en/print-on-demand-trends-2026",      kind:"blog",   base:24},
+  {path:"/blogs/en/custom-jewelry-ideas",             kind:"blog",   base:18},
+  {path:"/pricing",                                   kind:"other",  base:22},
+];
+const PAGES = PAGE_DEFS.map((p,pi)=>{
+  const users=[],sessions=[],views=[],engaged=[],clicks=[],impr=[],posSum=[];
+  const posBase = 3 + pi*1.4 + rand()*4;           // vị trí SEO trung bình của page
+  for(let i=0;i<N;i++){
+    const growth = 1 + i/N*0.6;                     // tăng dần theo 6 tháng
+    const wk = weekend(i)?0.65:1;                   // cuối tuần thấp hơn
+    const noise = 0.8 + rand()*0.4;
+    const v = Math.round(p.base*growth*wk*noise);
+    views.push(v);
+    sessions.push(Math.round(v*0.62));
+    users.push(Math.round(v*0.5));
+    engaged.push(Math.round(v*0.5*(0.55+rand()*0.15)));
+    const im = Math.round(v*(6+pi)*(0.9+rand()*0.3)); // impressions GSC
+    impr.push(im);
+    const pos = Math.max(1, posBase - i/N*1.5 + (rand()-0.5)); // vị trí cải thiện dần
+    const ctr = 0.02 + Math.max(0,(11-pos))/11*0.09;
+    clicks.push(Math.round(im*ctr));
+    posSum.push(pos*im);                            // để tính avg position có trọng số
+  }
+  return {...p, users,sessions,views,engaged,clicks,impr,posSum};
+});
+
+// Search queries (GSC) — brand + non-brand
+const QUERY_DEFS = [
+  {q:"teeinblue",                       brand:true,  base:60, pos:1.4},
+  {q:"teeinblue app",                   brand:true,  base:34, pos:1.8},
+  {q:"product personalizer shopify",    brand:false, base:48, pos:4.2},
+  {q:"custom product app shopify",      brand:false, base:41, pos:5.1},
+  {q:"product customizer",              brand:false, base:37, pos:6.0},
+  {q:"personalized products app",       brand:false, base:30, pos:5.6},
+  {q:"add engraving to product",        brand:false, base:22, pos:7.3},
+  {q:"photo upload customizer",         brand:false, base:19, pos:8.0},
+  {q:"live preview personalization",    brand:false, base:16, pos:6.8},
+  {q:"print on demand personalizer",    brand:false, base:14, pos:9.1},
+  {q:"zakeke alternative",              brand:false, base:12, pos:7.7},
+  {q:"custom jewelry shopify app",      brand:false, base:10, pos:8.4},
+];
+const QUERIES = QUERY_DEFS.map(d=>{
+  const clicks=[],impr=[],posSum=[];
+  for(let i=0;i<N;i++){
+    const growth=1+i/N*0.5, wk=weekend(i)?0.7:1, noise=0.8+rand()*0.4;
+    const im=Math.round(d.base*10*growth*wk*noise);
+    impr.push(im);
+    const pos=Math.max(1,d.pos - i/N*0.8 + (rand()-0.5)*0.6);
+    const ctr=d.brand?0.28+rand()*0.08:0.02+Math.max(0,(11-pos))/11*0.08;
+    clicks.push(Math.round(im*ctr));
+    posSum.push(pos*im);
+  }
+  return {...d,clicks,impr,posSum};
+});
+
+/* ============================ HELPERS ============================ */
+const fmt = n => n>=1000 ? (n/1000).toFixed(n>=10000?0:1)+'k' : String(Math.round(n));
+const fmtFull = n => Math.round(n).toLocaleString('en-US');
+const pct = n => (n*100).toFixed(1)+'%';
+const sumRange=(arr,a,b)=>{let s=0;for(let i=a;i<=b;i++)s+=arr[i];return s;};
+
+function rangeIdx(preset){
+  const end=N-1; let start=0;
+  if(preset==='7')  start=Math.max(0,end-6);
+  if(preset==='28') start=Math.max(0,end-27);
+  if(preset==='90') start=Math.max(0,end-89);
+  if(preset==='ytd')start=0;
+  if(preset==='all')start=0;
+  return [start,end];
+}
+function prevRange(a,b){const len=b-a+1;const pb=a-1;const pa=Math.max(0,a-len);return pb<0?null:[pa,pb];}
+function deltaHTML(cur,prev,invert=false){
+  if(prev==null||prev===0) return '<span class="delta flat">—</span>';
+  let d=(cur-prev)/prev; if(invert) d=-d;
+  const cls=d>0.001?'up':d<-0.001?'down':'flat';
+  const arrow=d>0.001?'▲':d<-0.001?'▼':'•';
+  return `<span class="delta ${cls}">${arrow} ${Math.abs(d*100).toFixed(1)}%</span>`;
+}
+
+/* ============================ STATE ============================ */
+let charts=[];
+function destroyCharts(){charts.forEach(c=>c.destroy());charts=[];}
+
+/* ============================ NATIVE DASHBOARD ============================ */
+function renderNative(scope){
+  const view=document.getElementById('view');
+  view.innerHTML=`
+    <div class="filters">
+      <div class="field">
+        <label>Khoảng thời gian</label>
+        <select id="f-range">
+          <option value="7">7 ngày gần nhất</option>
+          <option value="28" selected>28 ngày gần nhất</option>
+          <option value="90">90 ngày gần nhất</option>
+          <option value="ytd">Từ đầu năm</option>
+          <option value="all">Toàn bộ (Jan–Jul 2026)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Page path chứa</label>
+        <input id="f-path" type="text" placeholder="${scope==='blog'?'/blogs/…':'vd: /products'}">
+      </div>
+      <div class="src-badge"><span class="dot"></span> Dữ liệu mẫu — sẽ thay bằng GA4 + GSC thật</div>
+    </div>
+    <div class="kpis" id="kpis"></div>
+    <div class="grid">
+      <div class="panel"><h3>Người dùng & phiên (GA4)</h3><div class="sub">Users vs Sessions theo ngày</div><div class="chart-box"><canvas id="c-ga"></canvas></div></div>
+      <div class="panel"><h3>Clicks & Impressions (Search Console)</h3><div class="sub">Hiệu suất tìm kiếm Google theo ngày</div><div class="chart-box"><canvas id="c-gsc"></canvas></div></div>
+      <div class="panel"><h3>Vị trí trung bình trên Google (GSC)</h3><div class="sub">Average position — càng thấp càng tốt</div><div class="chart-box"><canvas id="c-pos"></canvas></div></div>
+      <div class="panel"><h3>Top trang theo lượt xem (GA4)</h3><div class="sub">Pageviews theo trang</div><div class="chart-box"><canvas id="c-pages"></canvas></div></div>
+      <div class="panel wide"><h3>Top search queries (Search Console)</h3><div class="sub">Từ khoá đưa người dùng tới site</div>
+        <table id="t-queries"><thead><tr><th>Query</th><th class="num">Clicks</th><th class="num">Impressions</th><th class="num">CTR</th><th class="num">Vị trí</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>`;
+
+  document.getElementById('f-range').onchange=update;
+  document.getElementById('f-path').oninput=update;
+  update();
+
+  function pagesInScope(){
+    let ps = scope==='blog' ? PAGES.filter(p=>p.kind==='blog') : PAGES.slice();
+    const q=(document.getElementById('f-path').value||'').trim().toLowerCase();
+    if(q) ps=ps.filter(p=>p.path.toLowerCase().includes(q));
+    return ps;
+  }
+
+  function update(){
+    destroyCharts();
+    const [a,b]=rangeIdx(document.getElementById('f-range').value);
+    const prev=prevRange(a,b);
+    const ps=pagesInScope();
+
+    // Gộp chuỗi theo ngày từ các page trong scope
+    const agg=key=>DAYS.map((_,i)=>ps.reduce((s,p)=>s+p[key][i],0));
+    const usersD=agg('users'), sessD=agg('sessions'), viewsD=agg('views'),
+          clicksD=agg('clicks'), imprD=agg('impr'), posSumD=agg('posSum');
+
+    const sUsers=sumRange(usersD,a,b), sSess=sumRange(sessD,a,b), sViews=sumRange(viewsD,a,b),
+          sClicks=sumRange(clicksD,a,b), sImpr=sumRange(imprD,a,b), sPosSum=sumRange(posSumD,a,b);
+    const avgPos = sImpr? sPosSum/sImpr : 0;
+    const ctr = sImpr? sClicks/sImpr : 0;
+
+    // KPI kỳ trước
+    const p=(arr)=>prev?sumRange(arr,prev[0],prev[1]):null;
+    const pUsers=p(usersD),pClicks=p(clicksD),pImpr=p(imprD),pViews=p(viewsD);
+    const pPos = prev && p(imprD) ? p(posSumD)/p(imprD) : null;
+    const pCtr = prev && p(imprD) ? p(clicksD)/p(imprD) : null;
+
+    document.getElementById('kpis').innerHTML=[
+      kpi('ga','Users (GA4)',fmtFull(sUsers),deltaHTML(sUsers,pUsers)),
+      kpi('ga','Sessions (GA4)',fmtFull(sSess),deltaHTML(sSess,p(sessD))),
+      kpi('ga','Pageviews (GA4)',fmtFull(sViews),deltaHTML(sViews,pViews)),
+      kpi('gsc','Clicks (GSC)',fmtFull(sClicks),deltaHTML(sClicks,pClicks)),
+      kpi('gsc','Impressions (GSC)',fmtFull(sImpr),deltaHTML(sImpr,pImpr)),
+      kpi('gsc','CTR (GSC)',pct(ctr),deltaHTML(ctr,pCtr)),
+      kpi('gsc','Vị trí TB (GSC)',avgPos.toFixed(1),deltaHTML(avgPos,pPos,true)),
+      kpi('ga','Số trang',String(ps.length),'<span class="delta flat">trong scope</span>'),
+    ].join('');
+
+    const labels=DAYS.slice(a,b+1).map(d=>`${d.getDate()}/${d.getMonth()+1}`);
+    const slice=arr=>arr.slice(a,b+1);
+    const step=Math.max(1,Math.floor((b-a+1)/12));
+    const baseOpts=(extra={})=>({responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:true,position:'top',labels:{boxWidth:12,font:{size:11}}}},
+      scales:{x:{ticks:{maxRotation:0,autoSkip:false,callback:(v,i)=>i%step===0?labels[i]:'',font:{size:10}},grid:{display:false}},
+              y:{beginAtZero:true,ticks:{font:{size:10}},grid:{color:'#f0f2f7'}}},...extra});
+
+    charts.push(new Chart(c('c-ga'),{type:'line',data:{labels,datasets:[
+      ds('Users',slice(usersD),'#1350de'),ds('Sessions',slice(sessD),'#7a5af8')]},options:baseOpts()}));
+
+    charts.push(new Chart(c('c-gsc'),{type:'line',data:{labels,datasets:[
+      ds('Clicks',slice(clicksD),'#12b76a'),ds('Impressions',slice(imprD),'#f79009',true)]},
+      options:baseOpts({scales:{x:{ticks:{maxRotation:0,autoSkip:false,callback:(v,i)=>i%step===0?labels[i]:'',font:{size:10}},grid:{display:false}},
+        y:{position:'left',beginAtZero:true,ticks:{font:{size:10}},grid:{color:'#f0f2f7'}},
+        y1:{position:'right',beginAtZero:true,ticks:{font:{size:10}},grid:{display:false}}}})}));
+
+    const posD=DAYS.map((_,i)=>imprD[i]?posSumD[i]/imprD[i]:null);
+    charts.push(new Chart(c('c-pos'),{type:'line',data:{labels,datasets:[ds('Vị trí TB',slice(posD),'#f04438')]},
+      options:baseOpts({plugins:{legend:{display:false}},scales:{x:{ticks:{maxRotation:0,autoSkip:false,callback:(v,i)=>i%step===0?labels[i]:'',font:{size:10}},grid:{display:false}},
+        y:{reverse:true,suggestedMin:1,ticks:{font:{size:10}},grid:{color:'#f0f2f7'}}}})}));
+
+    const topPages=ps.map(pg=>({path:pg.path,v:sumRange(pg.views,a,b)})).sort((x,y)=>y.v-x.v).slice(0,8);
+    charts.push(new Chart(c('c-pages'),{type:'bar',data:{labels:topPages.map(t=>t.path.length>28?'…'+t.path.slice(-27):t.path),
+      datasets:[{label:'Pageviews',data:topPages.map(t=>t.v),backgroundColor:'#1350de',borderRadius:4}]},
+      options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+        scales:{x:{beginAtZero:true,ticks:{font:{size:10}}},y:{ticks:{font:{size:10}}}}}}));
+
+    const qrows=QUERIES.map(q=>{
+      const cl=sumRange(q.clicks,a,b),im=sumRange(q.impr,a,b),ps2=sumRange(q.posSum,a,b);
+      return{q:q.q,cl,im,ctr:im?cl/im:0,pos:im?ps2/im:0};
+    }).sort((x,y)=>y.cl-x.cl).slice(0,10);
+    document.querySelector('#t-queries tbody').innerHTML=qrows.map(r=>
+      `<tr><td class="path">${r.q}</td><td class="num">${fmtFull(r.cl)}</td><td class="num">${fmtFull(r.im)}</td><td class="num">${pct(r.ctr)}</td><td class="num">${r.pos.toFixed(1)}</td></tr>`).join('');
+  }
+}
+const c=id=>document.getElementById(id).getContext('2d');
+function ds(label,data,color,y1){return{label,data,borderColor:color,backgroundColor:color+'22',borderWidth:2,tension:.3,pointRadius:0,fill:true,yAxisID:y1?'y1':'y'};}
+function kpi(src,label,val,delta){return`<div class="kpi"><div class="src ${src}">${src.toUpperCase()}</div><div class="label">${label}</div><div class="val">${val}</div>${delta}</div>`;}
+
+/* ============================ ROUTER ============================ */
+const nav=document.getElementById('nav');
+function show(ch){
+  [...nav.children].forEach(b=>b.classList.toggle('active',b.dataset.key===ch.key));
+  destroyCharts();
+  if(ch.mode==='native'){ renderNative(ch.scope); }
+  else { document.getElementById('view').innerHTML=
+    `<div class="placeholder"><h2>“${ch.label}” — chưa gắn nguồn dữ liệu</h2>
+     <p>Kênh này sẽ dựng dashboard native tương tự Website/Blogs khi có nguồn.<br>
+     Nguồn dự kiến: ${ch.key==='advertising'?'Shopify / Google / Reddit Ads':ch.key==='social'?'Facebook Community':ch.key==='appstore'?'Shopify App Store':'—'}.</p></div>`; }
+  location.hash=ch.key;
+}
+channels.forEach(ch=>{const b=document.createElement('button');b.textContent=ch.label;b.dataset.key=ch.key;b.onclick=()=>show(ch);nav.appendChild(b);});
+show(channels.find(c=>c.key===location.hash.slice(1))||channels[2]); // mặc định Website
+</script>
+</body>
+</html>

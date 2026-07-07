@@ -1,0 +1,14 @@
+# --- secrets: NEVER commit the Google service-account key ---
+ga-key.json
+*service-account*.json
+*-key.json
+.env
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# os
+.DS_Store
