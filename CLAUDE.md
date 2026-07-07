@@ -77,9 +77,9 @@ GitHub: https://github.com/thaopp910/teeinblue-marketing-analytics (public)
 - **GA4 website property:** `307498741` (env `GA4_PROPERTY`).
 - **GA4 App Store property:** `374057963` (env `APPSTORE_PROPERTY`).
 - **GSC:** domain property → `sc-domain:teeinblue.com` (env `GSC_SITE`).
-- **Service account:** `analytics-reader@teeinblue-marketing-analytics.iam.gserviceaccount.com`.
-- **JSON key:** `teeinblue-marketing-analytics-6fd7f3873307.json` at repo root — **git-ignored**
-  (patterns in `.gitignore`). Env `GA_KEY_PATH`. Claude must never read/handle the key contents.
+- **Auth:** OAuth as the user (see the OAuth section below); a service-account key is the
+  fallback. Both the key and OAuth secrets are git-ignored — Claude must never read/handle
+  their contents. Ask the user for the service-account email / key path if needed.
 - Deps in `requirements.txt`; a `.venv` is set up (`.venv/bin/python ga4_gsc_fetch.py`).
 - All fetch behaviour is env-configurable (property ids, dates, GSC site, caps, out path) —
   see the header of `ga4_gsc_fetch.py`.
