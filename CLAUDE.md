@@ -21,42 +21,88 @@ GitHub: https://github.com/thaopp910/teeinblue-marketing-analytics (public)
 
 ## Current status (as of this writing)
 
-- Dashboard is **built and verified** but runs on **MOCK data** generated inline in
-  `index.html` (procedural, shaped exactly like real GA4/GSC output).
+- **`ga4_gsc_fetch.py` written** — pulls GA4 (property `307498741`) + GSC
+  (`sc-domain:teeinblue.com`) and writes `data.json` in the exact front-end shape.
+  Config via env vars (see the script header). Deps in `requirements.txt`; a `.venv`
+  is set up. Run: `.venv/bin/python ga4_gsc_fetch.py`.
+- **`index.html` now `fetch('data.json')`** at startup (`loadData()`), with the
+  procedural mock kept as an offline fallback (`buildMock()`). A src badge shows which
+  source is live (green dot = data.json, amber = mock). Verified both paths in preview.
 - Channels: **Website** (`scope:"all"`) and **Blogs** (`scope:"blog"`, filters to
   `/blogs` paths) are live `native` dashboards. **App Store / Advertising / Social /
   Email** are placeholders (`mode:"soon"`).
-- Not yet done: the real data pull (`ga4_gsc_fetch.py`), wiring `index.html` to fetch
-  `data.json` instead of the inline mock, and the non-GA4 channels.
+- **App Store is now a live GA4-only `native` channel** (GA4 property `374057963`);
+  Advertising / Social / Email remain `mode:"soon"`.
+- **Blocked on GCP setup:** service-account key authenticates fine, but the fetch
+  fails until two APIs are enabled in project `teeinblue-marketing-analytics`
+  (project number `724959032197`): **Google Analytics Data API** and **Search Console
+  API**. Enable both, add the SA as Viewer on both GA4 properties (`307498741`,
+  `374057963`) and as a user in Search Console, then run:
+  `.venv/bin/python ga4_gsc_fetch.py`. GSC is a **domain** property →
+  `sc-domain:teeinblue.com` (the script default). A `.venv` is already set up.
+- Not yet done: enable the two APIs + first real run; Advertising/Social/Email channels.
 
-## Data model (mock now, real later — keep this shape in data.json)
+## Data model (data.json — what `ga4_gsc_fetch.py` writes, what the front-end reads)
 
-- `DAYS[]` — array of dates (currently 2026-01-01 … 2026-07-04).
-- `PAGES[]` — per page: `{path, kind, users[], sessions[], views[], engaged[],
-  clicks[], impr[], posSum[]}` where each array is a per-day series aligned to `DAYS`.
-  `posSum` = position × impressions (for weighted average position). GA4 gives
-  users/sessions/views; GSC gives clicks/impr/position by page.
-- `QUERIES[]` — per search query (GSC): `{q, brand, clicks[], impr[], posSum[]}`.
-- Front-end aggregates over the selected date range and page-path filter, and computes
-  deltas vs the immediately-preceding equal-length period.
+- `DAYS[]` — dates `"YYYY-MM-DD"` (front-end parses to `Date` via `new Date(s+'T00:00:00')`).
+- `TOTALS` — **site-level** daily series `{users[], sessions[], views[], clicks[],
+  impr[], posSum[]}` aligned to `DAYS`. This is the ACCURATE source for KPIs/charts.
+- `USERS_PRESET` — `{ "7","28","90","ytd","all" : n }` — GA4 `activeUsers` queried
+  per preset range (users are non-additive, so this is the only way to match GA4).
+- `PAGES[]` — per page `{path, kind, users[], sessions[], views[], engaged[], clicks[],
+  impr[], posSum[]}` — used for the Top-pages chart and the page-path filter only
+  (capped at TOP_PAGES; does NOT drive KPI totals).
+- `QUERIES[]` — per GSC query `{q, brand, clicks[], impr[], posSum[]}` (capped TOP_QUERIES).
+- `blogs` — `{ daily:{…same 6 series…, filtered to /blogs}, usersPreset:{…} }` for the
+  Blogs channel (GA4 `pagePath` begins-with `/blogs`; GSC `page` contains `/blogs`).
+- `appstore` — `{ property, daily:{users[],sessions[],views[]}, usersPreset:{…},
+  pages:[…] }` — GA4-only (no GSC).
+- `posSum` = position × impressions (impression-weighted avg position;
+  `Σ posSum / Σ impr` is exact for any range/page subset).
 
-## Real data setup (GA4 + GSC) — inputs needed from the user
+### Accuracy contract (why it's split this way)
+- **Exact vs GA4/GSC** (additive metrics, from `TOTALS`/`blogs.daily`): Sessions,
+  Pageviews, Clicks, Impressions, CTR, Position — for any date range.
+- **Users**: exact per preset (from `USERS_PRESET`) when no custom path filter; the
+  KPI shows the preset value and labels it "khớp GA4". With a custom path filter (or
+  any per-page sum) Users/Sessions become approximate (labeled "≈ ước lượng") — GA4
+  de-dups users cross-day AND cross-page, which a static per-page export can't replicate.
+- Front-end (`renderNative` in `index.html`): `useExact = !!D.daily && !filterText`.
+  Exact path reads `TOTALS`/`blogs.daily` + `usersPreset`; else falls back to per-page
+  `agg()`. Deltas always use the daily-sum series for a consistent baseline.
+- `rangeIdx()` preset ranges MUST match `preset_ranges()` in the fetch script.
 
-1. **GA4 Property ID** (Analytics → Admin → Property Settings) — numeric.
-2. **GSC property** — e.g. `https://teeinblue.com/` (or a domain property).
-3. **Google Cloud service account** with **Analytics Data API** + **Search Console API**
-   enabled, added as **Viewer** on the GA4 property and as a user in Search Console.
-4. **JSON key** downloaded to `ga-key.json` at the repo root — **git-ignored, never
-   commit it.** The fetch script reads it via a path/env var; Claude must never handle
-   the key contents.
+## Real data setup (GA4 + GSC) — CONFIRMED VALUES
 
-Fetch script deps (when writing it):
-`pip3 install google-analytics-data google-api-python-client google-auth`
+- **GA4 website property:** `307498741` (env `GA4_PROPERTY`).
+- **GA4 App Store property:** `374057963` (env `APPSTORE_PROPERTY`).
+- **GSC:** domain property → `sc-domain:teeinblue.com` (env `GSC_SITE`).
+- **Service account:** `analytics-reader@teeinblue-marketing-analytics.iam.gserviceaccount.com`.
+- **JSON key:** `teeinblue-marketing-analytics-6fd7f3873307.json` at repo root — **git-ignored**
+  (patterns in `.gitignore`). Env `GA_KEY_PATH`. Claude must never read/handle the key contents.
+- Deps in `requirements.txt`; a `.venv` is set up (`.venv/bin/python ga4_gsc_fetch.py`).
+- All fetch behaviour is env-configurable (property ids, dates, GSC site, caps, out path) —
+  see the header of `ga4_gsc_fetch.py`.
+
+### Auth: OAuth as the user (chosen — SA lacks GA4 admin grant)
+The user has read access to GA4/GSC but is NOT a GA4 Administrator, so the service
+account can't be added as a Viewer. Instead the script authenticates **as the user**
+via OAuth (`get_credentials()`), which needs no admin. Setup (one-time):
+1. GCP Console → project `teeinblue-marketing-analytics` → APIs & Services → OAuth
+   consent screen: User type **External**, app name + support/dev email, save; add the
+   user's own Google account under **Test users**.
+2. APIs & Services → Credentials → Create credentials → **OAuth client ID** →
+   **Desktop app** → download JSON → save as **`oauth_client.json`** at repo root.
+3. Run `.venv/bin/python ga4_gsc_fetch.py` → a browser opens once for consent →
+   token cached to `token.json` (refreshes silently after). Both files are git-ignored.
+`get_credentials()` auto-picks OAuth when `oauth_client.json`/`token.json` exists, else
+service account. Force with `AUTH_MODE=oauth|sa`. One credential covers GA4 + GSC.
 
 ## Non-GA4/GSC channels
 
-App Store / Advertising (Shopify/Google/Reddit ads) / Social (Facebook Community) /
-Email don't exist in GA4/GSC. Their numbers live in the marketing tracker sheet:
+**App Store is now GA4-backed** (property `374057963`) — done. Advertising
+(Shopify/Google/Reddit ads) / Social (Facebook Community) / Email still don't exist in
+GA4/GSC. Their numbers live in the marketing tracker sheet:
 https://docs.google.com/spreadsheets/d/15AOSU3itnybY4e41kZhicUp8_QofW-Yq9VNcNpYmtyw
 Build those channels as `native` dashboards fed from that sheet (published CSV or a
 pull script) in a later phase.
@@ -71,8 +117,12 @@ pull script) in a later phase.
 
 ## Next steps
 
-1. Get the 4 inputs above from the user.
-2. Write `ga4_gsc_fetch.py` → outputs `data.json`.
-3. Refactor `index.html` to `fetch('data.json')` and drop the inline mock (keep a small
-   mock fallback so it still renders offline).
-4. Build App Store / Advertising / Social channels from the marketing sheet.
+1. **Enable the 2 GCP APIs** (Analytics Data + Search Console) in project
+   `724959032197`, grant the SA access on both GA4 properties + Search Console.
+2. Run `.venv/bin/python ga4_gsc_fetch.py` → generates real `data.json`; the site
+   auto-switches from mock to live (green badge). Verify KPIs against GA4/GSC.
+3. Schedule the fetch (cron/launchd) to refresh `data.json` on a cadence.
+4. Build Advertising / Social / Email channels from the marketing sheet (later phase).
+
+DONE: `ga4_gsc_fetch.py` (GA4+GSC, accuracy-split), `index.html` wired to `data.json`
+with mock fallback, App Store GA4 channel, key git-ignored.

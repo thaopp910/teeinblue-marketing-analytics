@@ -3,6 +3,12 @@ ga-key.json
 *service-account*.json
 *-key.json
 .env
+# GCP-downloaded key for this project (project-id + hash naming)
+teeinblue-marketing-analytics-*.json
+*.iam.gserviceaccount.com.json
+# OAuth user-auth (client secret + cached token) — both secret
+oauth_client.json
+token.json
 
 # python
 __pycache__/
