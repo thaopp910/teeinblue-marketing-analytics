@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -75,7 +75,6 @@
 <header>
   <div class="brand-row">
     <div class="brand">Teeinblue <span>Marketing Analytics</span></div>
-    <div class="tag">Self-built dashboard · GA4 + Google Search Console</div>
   </div>
   <nav id="nav"></nav>
 </header>
@@ -104,8 +103,8 @@ const channels = [
    DAYS[] (Date), PAGES[], QUERIES[] được gán runtime trong loadData().
    ===================================================================== */
 let DAYS=[], N=0, PAGES=[], QUERIES=[];
-let TOTALS=null, USERS_PRESET=null, BLOGS=null, APP=null;  // cấp site (chính xác) + App Store
-let DATA_SRC={source:'mock'};              // nguồn thực tế đang dùng (để hiện badge)
+let TOTALS=null, USERS_PRESET=null, BLOGS=null, APP=null, AI_WEB=null;  // site-level + App Store + AI
+let DATA_SRC={source:'mock'};              // nguồn thực tế đang dùng
 
 // Gộp chuỗi theo ngày từ danh sách page (fallback khi data.json thiếu totals & cho mock)
 function sumPagesDaily(pages, keys, n){
@@ -203,11 +202,24 @@ function buildMock(){
     return {...p,users,sessions,views,engaged};
   });
 
+  // Views từ AI chatbots (mock)
+  const AI_SRC=['chatgpt.com','perplexity.ai','gemini.google.com','claude.ai'];
+  function mockAI(scale){
+    const bySource={}, total=new Array(n).fill(0);
+    AI_SRC.forEach((s,si)=>{const arr=[];
+      for(let i=0;i<n;i++){const growth=1+i/n*1.6, wk=weekend(i)?0.7:1;
+        const v=Math.round(scale*(1-si*0.2)*growth*wk*(0.7+rand()*0.6));
+        arr.push(v); total[i]+=v;}
+      bySource[s]=arr;});
+    return {bySource,total};
+  }
+
   const K=['users','sessions','views','clicks','impr','posSum'];
   return {
     DAYS:days, PAGES:pages, QUERIES:queries,
     TOTALS: sumPagesDaily(pages, K, n),
-    BLOGS: {daily: sumPagesDaily(pages.filter(p=>p.kind==='blog'), K, n), usersPreset:null},
+    AI: mockAI(6),
+    BLOGS: {daily: sumPagesDaily(pages.filter(p=>p.kind==='blog'), K, n), usersPreset:null, ai: mockAI(3)},
     APP:   {daily: sumPagesDaily(appPages, ['users','sessions','views'], n), usersPreset:null, pages:appPages},
   };
 }
@@ -225,9 +237,10 @@ async function loadData(){
     const K=['users','sessions','views','clicks','impr','posSum'];
     TOTALS = j.TOTALS || sumPagesDaily(PAGES, K, N);
     USERS_PRESET = j.USERS_PRESET || null;
+    AI_WEB = j.AI || null;
     BLOGS = j.blogs
-      ? {daily:j.blogs.daily, usersPreset:j.blogs.usersPreset||null}
-      : {daily:sumPagesDaily(PAGES.filter(p=>p.kind==='blog'), K, N), usersPreset:null};
+      ? {daily:j.blogs.daily, usersPreset:j.blogs.usersPreset||null, ai:j.blogs.ai||null}
+      : {daily:sumPagesDaily(PAGES.filter(p=>p.kind==='blog'), K, N), usersPreset:null, ai:null};
     APP = j.appstore
       ? {daily:j.appstore.daily, usersPreset:j.appstore.usersPreset||null, pages:j.appstore.pages||[]}
       : null;
@@ -235,7 +248,7 @@ async function loadData(){
   }catch(e){
     const m = buildMock();
     DAYS = m.DAYS; N = DAYS.length; PAGES = m.PAGES; QUERIES = m.QUERIES;
-    TOTALS = m.TOTALS; USERS_PRESET = null; BLOGS = m.BLOGS; APP = m.APP;
+    TOTALS = m.TOTALS; USERS_PRESET = null; AI_WEB = m.AI; BLOGS = m.BLOGS; APP = m.APP;
     DATA_SRC = {source:'mock', error:String(e)};
   }
 }
@@ -245,6 +258,8 @@ const fmt = n => n>=1000 ? (n/1000).toFixed(n>=10000?0:1)+'k' : String(Math.roun
 const fmtFull = n => Math.round(n).toLocaleString('en-US');
 const pct = n => (n*100).toFixed(1)+'%';
 const fmtD = d => `${d.getDate()}/${d.getMonth()+1}/${String(d.getFullYear()).slice(2)}`;
+const isoOf = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const AI_PALETTE = ['#1350de','#7a5af8','#12b76a','#f79009','#f04438','#06aed4','#ec4899','#84cc16'];
 const sumRange=(arr,a,b)=>{let s=0;for(let i=a;i<=b;i++)s+=(arr[i]||0);return s;};
 
 function rangeIdx(preset){
@@ -277,53 +292,83 @@ function renderNative(ch){
   const hasGSC = !isApp;
 
   if(isApp && (!APP || !APP.daily)){
-    view.innerHTML=`<div class="placeholder"><h2>“App Store” — chưa có dữ liệu GA4</h2>
-      <p>Chạy <code>ga4_gsc_fetch.py</code> để nạp <code>data.json</code> (GA4 property App Store).</p></div>`;
+    view.innerHTML=`<div class="placeholder"><h2>“App Store” — no GA4 data yet</h2>
+      <p>Run <code>ga4_gsc_fetch.py</code> to generate <code>data.json</code> (App Store GA4 property).</p></div>`;
     return;
   }
 
-  // Nguồn cấp-site (chính xác) cho kênh hiện tại
+  // Site-level (exact) source for this channel
   const D = isApp ? APP
           : (scope==='blog' ? {daily:(BLOGS&&BLOGS.daily), usersPreset:(BLOGS&&BLOGS.usersPreset)}
                             : {daily:TOTALS, usersPreset:USERS_PRESET});
   const basePages = isApp ? (APP.pages||[])
           : (scope==='blog' ? PAGES.filter(p=>p.kind==='blog') : PAGES);
+  const aiData = isApp ? null : (scope==='blog' ? (BLOGS&&BLOGS.ai) : AI_WEB);
 
-  const gaPanel    = `<div class="panel"><h3>Người dùng & phiên (GA4)</h3><div class="sub">Users vs Sessions theo ngày</div><div class="chart-box"><canvas id="c-ga"></canvas></div></div>`;
-  const pagesPanel = `<div class="panel"><h3>Top trang theo lượt xem (GA4)</h3><div class="sub">Pageviews theo trang</div><div class="chart-box"><canvas id="c-pages"></canvas></div></div>`;
+  const gaPanel    = `<div class="panel"><h3>Users &amp; sessions (GA4)</h3><div class="sub">Users vs sessions by day</div><div class="chart-box"><canvas id="c-ga"></canvas></div></div>`;
+  const pagesPanel = `<div class="panel"><h3>Top pages by views (GA4)</h3><div class="sub">Pageviews by page</div><div class="chart-box"><canvas id="c-pages"></canvas></div></div>`;
+  const aiPanel = aiData ? `<div class="panel wide"><h3>Views from AI chatbots (GA4)</h3><div class="sub">Pageviews by AI referral source (session source)</div><div class="chart-box"><canvas id="c-ai"></canvas></div></div>` : '';
   const gridHTML = hasGSC ? `${gaPanel}
-      <div class="panel"><h3>Clicks & Impressions (Search Console)</h3><div class="sub">Hiệu suất tìm kiếm Google theo ngày</div><div class="chart-box"><canvas id="c-gsc"></canvas></div></div>
-      <div class="panel"><h3>Vị trí trung bình trên Google (GSC)</h3><div class="sub">Average position — càng thấp càng tốt</div><div class="chart-box"><canvas id="c-pos"></canvas></div></div>
+      <div class="panel"><h3>Clicks &amp; impressions (Search Console)</h3><div class="sub">Google search performance by day</div><div class="chart-box"><canvas id="c-gsc"></canvas></div></div>
+      <div class="panel"><h3>Average position on Google (GSC)</h3><div class="sub">Average position — lower is better</div><div class="chart-box"><canvas id="c-pos"></canvas></div></div>
       ${pagesPanel}
-      <div class="panel wide"><h3>Top search queries (Search Console)</h3><div class="sub">Từ khoá đưa người dùng tới site</div>
-        <table id="t-queries"><thead><tr><th>Query</th><th class="num">Clicks</th><th class="num">Impressions</th><th class="num">CTR</th><th class="num">Vị trí</th></tr></thead><tbody></tbody></table>
-      </div>` : `${gaPanel}${pagesPanel}`;
+      ${aiPanel}
+      <div class="panel wide"><h3>Top search queries (Search Console)</h3><div class="sub">Queries bringing users to the site</div>
+        <table id="t-queries"><thead><tr><th>Query</th><th class="num">Clicks</th><th class="num">Impressions</th><th class="num">CTR</th><th class="num">Position</th></tr></thead><tbody></tbody></table>
+      </div>` : `${gaPanel}${pagesPanel}${aiPanel}`;
 
-  const allLabel = N ? `Toàn bộ (${fmtD(DAYS[0])}–${fmtD(DAYS[N-1])})` : 'Toàn bộ';
+  const allLabel = N ? `All time (${fmtD(DAYS[0])}–${fmtD(DAYS[N-1])})` : 'All time';
+  const minISO = N ? isoOf(DAYS[0]) : '', maxISO = N ? isoOf(DAYS[N-1]) : '';
   view.innerHTML=`
     <div class="filters">
       <div class="field">
-        <label>Khoảng thời gian</label>
+        <label>Date range</label>
         <select id="f-range">
-          <option value="7">7 ngày gần nhất</option>
-          <option value="28" selected>28 ngày gần nhất</option>
-          <option value="90">90 ngày gần nhất</option>
-          <option value="ytd">Từ đầu năm</option>
+          <option value="7">Last 7 days</option>
+          <option value="28" selected>Last 28 days</option>
+          <option value="90">Last 90 days</option>
+          <option value="ytd">Year to date</option>
           <option value="all">${allLabel}</option>
+          <option value="custom">Custom range…</option>
         </select>
       </div>
-      <div class="field">
-        <label>Page path chứa</label>
-        <input id="f-path" type="text" placeholder="${scope==='blog'?'/blogs/…':'vd: /products'}">
+      <div class="field" id="f-custom" style="display:none">
+        <label>From / to</label>
+        <div style="display:flex;gap:8px">
+          <input id="f-from" type="date" min="${minISO}" max="${maxISO}" value="${minISO}">
+          <input id="f-to" type="date" min="${minISO}" max="${maxISO}" value="${maxISO}">
+        </div>
       </div>
-      <div class="src-badge">${srcBadge()}</div>
+      <div class="field">
+        <label>Page path contains</label>
+        <input id="f-path" type="text" placeholder="${scope==='blog'?'/blogs/…':'e.g. /products'}">
+      </div>
     </div>
     <div class="kpis" id="kpis"></div>
     <div class="grid">${gridHTML}</div>`;
 
-  document.getElementById('f-range').onchange=update;
+  const rangeEl=document.getElementById('f-range');
+  rangeEl.onchange=()=>{
+    document.getElementById('f-custom').style.display = rangeEl.value==='custom' ? 'flex' : 'none';
+    update();
+  };
+  document.getElementById('f-from').onchange=update;
+  document.getElementById('f-to').onchange=update;
   document.getElementById('f-path').oninput=update;
   update();
+
+  function currentRange(){
+    const sel=rangeEl.value;
+    if(sel==='custom'){
+      const fromV=document.getElementById('f-from').value, toV=document.getElementById('f-to').value;
+      let a=0,b=N-1;
+      if(fromV){ const i=DAYS.findIndex(d=>isoOf(d)>=fromV); a=i<0?N-1:i; }
+      if(toV){ let i=-1; for(let k=0;k<N;k++) if(isoOf(DAYS[k])<=toV) i=k; b=i<0?0:i; }
+      if(a>b){ const t=a; a=b; b=t; }
+      return [a,b];
+    }
+    return rangeIdx(sel);
+  }
 
   function pagesInScope(){
     let ps = basePages.slice();
@@ -334,12 +379,12 @@ function renderNative(ch){
 
   function update(){
     destroyCharts();
-    const rangeSel=document.getElementById('f-range').value;
-    const [a,b]=rangeIdx(rangeSel);
+    const rangeSel=rangeEl.value;
+    const [a,b]=currentRange();
     const prev=prevRange(a,b);
     const ps=pagesInScope();
     const filterText=(document.getElementById('f-path').value||'').trim();
-    // Chính xác (cấp site) khi KHÔNG lọc path tùy ý; ngược lại gộp per-page (xấp xỉ)
+    // Site-level (exact) when no custom path filter; otherwise per-page sum
     const useExact = !!(D.daily) && !filterText;
 
     let usersD,sessD,viewsD,clicksD,imprD,posSumD;
@@ -354,17 +399,19 @@ function renderNative(ch){
 
     const sumP=arr=>prev?sumRange(arr,prev[0],prev[1]):null;
     const sSess=sumRange(sessD,a,b), sViews=sumRange(viewsD,a,b);
-    const sUsersDaily=sumRange(usersD,a,b);                    // để tính delta (nhất quán)
+    const sUsersDaily=sumRange(usersD,a,b);                     // used for delta (consistent method)
     const presetUsers=(D.usersPreset && D.usersPreset[rangeSel]!=null)?D.usersPreset[rangeSel]:null;
-    const sUsers=(useExact && presetUsers!=null)?presetUsers:sUsersDaily;   // KPI hiển thị (chính xác nếu có)
-    const usersHint = useExact ? (presetUsers!=null?'khớp GA4':'≈ tổng theo ngày') : '≈ ước lượng (lọc path)';
-    const gaHint = useExact ? 'khớp GA4' : '≈ ước lượng';
+    const sUsers=(useExact && presetUsers!=null)?presetUsers:sUsersDaily;   // exact preset value if available
 
     const cards=[
-      kpi('ga','Users (GA4)',fmtFull(sUsers),deltaHTML(sUsersDaily,sumP(usersD)),usersHint),
-      kpi('ga','Sessions (GA4)',fmtFull(sSess),deltaHTML(sSess,sumP(sessD)),gaHint),
-      kpi('ga','Pageviews (GA4)',fmtFull(sViews),deltaHTML(sViews,sumP(viewsD)),gaHint),
+      kpi('ga','Users (GA4)',fmtFull(sUsers),deltaHTML(sUsersDaily,sumP(usersD))),
+      kpi('ga','Sessions (GA4)',fmtFull(sSess),deltaHTML(sSess,sumP(sessD))),
+      kpi('ga','Pageviews (GA4)',fmtFull(sViews),deltaHTML(sViews,sumP(viewsD))),
     ];
+    if(aiData){
+      const sAI=sumRange(aiData.total,a,b);
+      cards.push(kpi('ga','AI chatbot views (GA4)',fmtFull(sAI),deltaHTML(sAI,sumP(aiData.total))));
+    }
     if(hasGSC){
       const sClicks=sumRange(clicksD,a,b), sImpr=sumRange(imprD,a,b), sPosSum=sumRange(posSumD,a,b);
       const avgPos=sImpr?sPosSum/sImpr:0, ctr=sImpr?sClicks/sImpr:0;
@@ -375,10 +422,10 @@ function renderNative(ch){
         kpi('gsc','Clicks (GSC)',fmtFull(sClicks),deltaHTML(sClicks,sumP(clicksD))),
         kpi('gsc','Impressions (GSC)',fmtFull(sImpr),deltaHTML(sImpr,pImpr)),
         kpi('gsc','CTR (GSC)',pct(ctr),deltaHTML(ctr,pCtr)),
-        kpi('gsc','Vị trí TB (GSC)',avgPos.toFixed(1),deltaHTML(avgPos,pPos,true)),
+        kpi('gsc','Avg position (GSC)',avgPos.toFixed(1),deltaHTML(avgPos,pPos,true)),
       );
     }
-    cards.push(kpi('ga','Số trang',String(ps.length),'<span class="delta flat">trong scope</span>'));
+    cards.push(kpi('ga','Pages',String(ps.length),'<span class="delta flat">in scope</span>'));
     document.getElementById('kpis').innerHTML=cards.join('');
 
     const labels=DAYS.slice(a,b+1).map(d=>`${d.getDate()}/${d.getMonth()+1}`);
@@ -400,7 +447,7 @@ function renderNative(ch){
           y1:{position:'right',beginAtZero:true,ticks:{font:{size:10}},grid:{display:false}}}})}));
 
       const posD=DAYS.map((_,i)=>imprD[i]?posSumD[i]/imprD[i]:null);
-      charts.push(new Chart(c('c-pos'),{type:'line',data:{labels,datasets:[ds('Vị trí TB',slice(posD),'#f04438')]},
+      charts.push(new Chart(c('c-pos'),{type:'line',data:{labels,datasets:[ds('Avg position',slice(posD),'#f04438')]},
         options:baseOpts({plugins:{legend:{display:false}},scales:{x:{ticks:{maxRotation:0,autoSkip:false,callback:(v,i)=>i%step===0?labels[i]:'',font:{size:10}},grid:{display:false}},
           y:{reverse:true,suggestedMin:1,ticks:{font:{size:10}},grid:{color:'#f0f2f7'}}}})}));
     }
@@ -411,6 +458,12 @@ function renderNative(ch){
       options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
         scales:{x:{beginAtZero:true,ticks:{font:{size:10}}},y:{ticks:{font:{size:10}}}}}}));
 
+    if(aiData){
+      const srcs=Object.keys(aiData.bySource||{});
+      const dsets=srcs.map((s,i)=>({...ds(s,slice(aiData.bySource[s]),AI_PALETTE[i%AI_PALETTE.length]),fill:false}));
+      charts.push(new Chart(c('c-ai'),{type:'line',data:{labels,datasets:dsets},options:baseOpts()}));
+    }
+
     if(hasGSC){
       const qrows=QUERIES.map(q=>{
         const cl=sumRange(q.clicks,a,b),im=sumRange(q.impr,a,b),ps2=sumRange(q.posSum,a,b);
@@ -420,13 +473,6 @@ function renderNative(ch){
         `<tr><td class="path">${r.q}</td><td class="num">${fmtFull(r.cl)}</td><td class="num">${fmtFull(r.im)}</td><td class="num">${pct(r.ctr)}</td><td class="num">${r.pos.toFixed(1)}</td></tr>`).join('');
     }
   }
-}
-function srcBadge(){
-  if(DATA_SRC.source==='live'){
-    const end=DATA_SRC.meta&&DATA_SRC.meta.end?` · tới ${DATA_SRC.meta.end}`:'';
-    return `<span class="dot live"></span> GA4 + Search Console (data.json)${end}`;
-  }
-  return '<span class="dot"></span> Dữ liệu mẫu — chưa có data.json (chạy ga4_gsc_fetch.py)';
 }
 const c=id=>document.getElementById(id).getContext('2d');
 function ds(label,data,color,y1){return{label,data,borderColor:color,backgroundColor:color+'22',borderWidth:2,tension:.3,pointRadius:0,fill:true,yAxisID:y1?'y1':'y'};}
@@ -439,9 +485,9 @@ function show(ch){
   destroyCharts();
   if(ch.mode==='native'){ renderNative(ch); }
   else { document.getElementById('view').innerHTML=
-    `<div class="placeholder"><h2>“${ch.label}” — chưa gắn nguồn dữ liệu</h2>
-     <p>Kênh này sẽ dựng dashboard native tương tự Website/Blogs khi có nguồn.<br>
-     Nguồn dự kiến: ${ch.key==='advertising'?'Shopify / Google / Reddit Ads':ch.key==='social'?'Facebook Community':ch.key==='appstore'?'Shopify App Store':'—'}.</p></div>`; }
+    `<div class="placeholder"><h2>“${ch.label}” — no data source connected</h2>
+     <p>This channel will get a native dashboard like Website/Blogs once a source is wired.<br>
+     Planned source: ${ch.key==='advertising'?'Shopify / Google / Reddit Ads':ch.key==='social'?'Facebook Community':ch.key==='appstore'?'Shopify App Store':'—'}.</p></div>`; }
   location.hash=ch.key;
 }
 channels.forEach(ch=>{const b=document.createElement('button');b.textContent=ch.label;b.dataset.key=ch.key;b.onclick=()=>show(ch);nav.appendChild(b);});

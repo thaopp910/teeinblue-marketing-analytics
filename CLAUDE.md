@@ -57,20 +57,29 @@ GitHub: https://github.com/thaopp910/teeinblue-marketing-analytics (public)
   Blogs channel (GA4 `pagePath` begins-with `/blogs`; GSC `page` contains `/blogs`).
 - `appstore` — `{ property, daily:{users[],sessions[],views[]}, usersPreset:{…},
   pages:[…] }` — GA4-only (no GSC).
+- `AI` (website) / `blogs.ai` — views from AI chatbots: `{ bySource:{"<source>":[daily]},
+  total:[daily] }`. From GA4 `screenPageViews` dimensioned by `sessionSource`, filtered to
+  AI markers (`AI_MARKERS` in the fetch script: chatgpt, perplexity, gemini, claude,
+  copilot, poe, deepseek, …). `bySource` keeps the top 8 sources; `total` sums all matched.
+  Rendered as the "Views from AI chatbots (GA4)" panel + KPI on Website & Blogs only.
 - `posSum` = position × impressions (impression-weighted avg position;
   `Σ posSum / Σ impr` is exact for any range/page subset).
 
 ### Accuracy contract (why it's split this way)
 - **Exact vs GA4/GSC** (additive metrics, from `TOTALS`/`blogs.daily`): Sessions,
   Pageviews, Clicks, Impressions, CTR, Position — for any date range.
-- **Users**: exact per preset (from `USERS_PRESET`) when no custom path filter; the
-  KPI shows the preset value and labels it "khớp GA4". With a custom path filter (or
-  any per-page sum) Users/Sessions become approximate (labeled "≈ ước lượng") — GA4
-  de-dups users cross-day AND cross-page, which a static per-page export can't replicate.
+- **Users**: exact per preset (from `USERS_PRESET`) when no custom path filter; the KPI
+  shows the preset value. With a custom path filter (or any per-page sum) Users/Sessions
+  become approximate — GA4 de-dups users cross-day AND cross-page, which a static per-page
+  export can't replicate. (Accuracy labels like "khớp GA4"/"≈" were removed from the UI per
+  user request — the logic still switches exact↔approx, it's just not annotated.)
 - Front-end (`renderNative` in `index.html`): `useExact = !!D.daily && !filterText`.
   Exact path reads `TOTALS`/`blogs.daily` + `usersPreset`; else falls back to per-page
   `agg()`. Deltas always use the daily-sum series for a consistent baseline.
-- `rangeIdx()` preset ranges MUST match `preset_ranges()` in the fetch script.
+- `rangeIdx()` preset ranges MUST match `preset_ranges()` in the fetch script. There is
+  also a **Custom range** option (`currentRange()` maps two `<input type=date>` to day
+  indices); custom ranges use daily-sum for Users (no preset), exact for the additive metrics.
+- **UI is English**; the source badge and header tagline were removed for a cleaner report.
 
 ## Real data setup (GA4 + GSC) — CONFIRMED VALUES
 

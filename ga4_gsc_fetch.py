@@ -74,6 +74,11 @@ SCOPES    = [GA4_SCOPE, GSC_SCOPE]           # 1 credentials dùng chung GA4 + G
 BLOG_PREFIX = "/blogs"                       # phân loại blog (khớp front-end)
 GA_METRICS  = ["activeUsers", "sessions", "screenPageViews", "engagedSessions"]
 
+# Nguồn AI chatbot (khớp sessionSource GA4 theo substring, gồm cả subdomain)
+AI_MARKERS = ["chatgpt", "openai.com", "perplexity", "gemini.google", "bard.google",
+              "claude.ai", "copilot", "you.com", "poe.com", "deepseek", "x.ai",
+              "grok", "meta.ai", "mistral"]
+
 
 # ----------------------------------------------------------------------------
 # Helpers chung
@@ -161,6 +166,49 @@ def ga4_blog_filter():
         string_filter=Filter.StringFilter(
             match_type=Filter.StringFilter.MatchType.BEGINS_WITH,
             value=BLOG_PREFIX)))
+
+
+def ga4_ai_filter():
+    """FilterExpression: sessionSource CHỨA bất kỳ marker AI nào (or-group)."""
+    from google.analytics.data_v1beta.types import (
+        Filter, FilterExpression, FilterExpressionList)
+
+    def contains(v):
+        return FilterExpression(filter=Filter(
+            field_name="sessionSource",
+            string_filter=Filter.StringFilter(
+                match_type=Filter.StringFilter.MatchType.CONTAINS, value=v)))
+
+    return FilterExpression(or_group=FilterExpressionList(
+        expressions=[contains(m) for m in AI_MARKERS]))
+
+
+def ga4_and(a, b):
+    from google.analytics.data_v1beta.types import FilterExpression, FilterExpressionList
+    return FilterExpression(and_group=FilterExpressionList(expressions=[a, b]))
+
+
+def ga4_ai_views(client, prop, start, end, day_idx, ndays, extra_filter=None):
+    """Views theo ngày từ các nguồn AI chatbot, tách theo sessionSource.
+
+    Trả về {bySource:{<source>:[daily]}, total:[daily]} — total gộp mọi nguồn AI,
+    bySource giữ top 8 nguồn nhiều view nhất (để hiển thị)."""
+    flt = ga4_ai_filter()
+    if extra_filter is not None:
+        flt = ga4_and(flt, extra_filter)
+    rows = ga4_report(client, prop, ["date", "sessionSource"],
+                      ["screenPageViews"], start, end, flt)
+    by_source, total = {}, [0] * ndays
+    for r in rows:
+        i = day_idx.get(ga_date(r.dimension_values[0].value))
+        if i is None:
+            continue
+        src = r.dimension_values[1].value
+        v = int(float(r.metric_values[0].value))
+        by_source.setdefault(src, [0] * ndays)[i] += v
+        total[i] += v
+    top = sorted(by_source.items(), key=lambda kv: sum(kv[1]), reverse=True)[:8]
+    return {"bySource": {k: v for k, v in top}, "total": total}
 
 
 def ga4_report(client, prop, dims, mets, start, end, dim_filter=None):
@@ -352,12 +400,15 @@ def main():
         w_users_preset = {k: ga4_scalar_users(ga, GA4_PROPERTY, s, e)
                           for k, (s, e) in presets.items()}
         w_pages = ga4_pages(ga, GA4_PROPERTY, START_DATE, END_DATE, day_idx, ndays)
+        w_ai = ga4_ai_views(ga, GA4_PROPERTY, START_DATE, END_DATE, day_idx, ndays)
         # Blogs (lọc pagePath begins_with /blogs)
         bf = ga4_blog_filter()
         b_users, b_sessions, b_views = ga4_daily_users_sessions_views(
             ga, GA4_PROPERTY, START_DATE, END_DATE, day_idx, ndays, bf)
         b_users_preset = {k: ga4_scalar_users(ga, GA4_PROPERTY, s, e, bf)
                           for k, (s, e) in presets.items()}
+        b_ai = ga4_ai_views(ga, GA4_PROPERTY, START_DATE, END_DATE, day_idx, ndays,
+                            ga4_blog_filter())
     except Exception as e:  # noqa: BLE001
         fail(f"GA4 website lỗi ({type(e).__name__}): {e}\n"
              f"Kiểm tra: property {GA4_PROPERTY} đúng, Analytics Data API đã bật, "
@@ -467,12 +518,14 @@ def main():
         "TOTALS": {"users": w_users, "sessions": w_sessions, "views": w_views,
                    "clicks": w_clicks, "impr": w_impr, "posSum": w_posSum},
         "USERS_PRESET": w_users_preset,
+        "AI": w_ai,
         "PAGES": page_list,
         "QUERIES": query_list,
         "blogs": {
             "daily": {"users": b_users, "sessions": b_sessions, "views": b_views,
                       "clicks": b_clicks, "impr": b_impr, "posSum": b_posSum},
             "usersPreset": b_users_preset,
+            "ai": b_ai,
         },
     }
     if a_users is not None:
@@ -488,8 +541,10 @@ def main():
 
     print(f"\n✓ Ghi {OUT}")
     print(f"  Website: {len(page_list)} pages, {len(query_list)} queries · "
-          f"Users(all)={w_users_preset.get('all')}")
-    print(f"  Blogs:   Users(all)={b_users_preset.get('all')}")
+          f"Users(all)={w_users_preset.get('all')} · "
+          f"AI views(all)={sum(w_ai['total'])} từ {len(w_ai['bySource'])} nguồn")
+    print(f"  Blogs:   Users(all)={b_users_preset.get('all')} · "
+          f"AI views(all)={sum(b_ai['total'])}")
     if a_users is not None:
         print(f"  AppStore:{len(app_pages)} pages · Users(all)={a_users_preset.get('all')}")
 
